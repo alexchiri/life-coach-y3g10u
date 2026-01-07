@@ -28,6 +28,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     val isAuthSetupComplete = securityManager.isAuthSetupComplete
     val isBiometricEnabled = securityManager.isBiometricEnabled
+    val isApiKeySet = securityManager.isApiKeySet
     fun canUseBiometric() = securityManager.canUseBiometric()
 
     // UI State
@@ -99,6 +100,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val passphrase = securityManager.getDatabasePassphrase()
         val db = LifeCoachDatabase.getDatabase(getApplication(), passphrase)
         repository = LifeCoachRepository(db.dao())
+
+        // Load and initialize Claude API key if available
+        val apiKey = securityManager.getClaudeApiKey()
+        if (apiKey != null) {
+            claudeService = ClaudeService(apiKey)
+        }
+
         loadData()
     }
 
@@ -130,6 +138,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setApiKey(apiKey: String) {
         claudeService = ClaudeService(apiKey)
+    }
+
+    fun saveClaudeApiKey(apiKey: String) {
+        viewModelScope.launch {
+            securityManager.setClaudeApiKey(apiKey)
+            claudeService = ClaudeService(apiKey)
+        }
     }
 
     fun completeOnboarding(answers: Map<String, List<String>>) {

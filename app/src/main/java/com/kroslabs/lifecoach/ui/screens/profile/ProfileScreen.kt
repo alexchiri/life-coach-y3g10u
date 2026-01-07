@@ -22,13 +22,17 @@ fun ProfileScreen(
     biometricAvailable: Boolean,
     totalTokensUsed: Int,
     totalCostCents: Float,
+    apiKeySet: Boolean,
     onThemeChange: (ThemeMode) -> Unit,
     onBiometricToggle: (Boolean) -> Unit,
+    onApiKeySave: (String) -> Unit,
     onExportData: () -> Unit,
     onClearData: () -> Unit
 ) {
     var showClearDialog by remember { mutableStateOf(false) }
     var showThemeDialog by remember { mutableStateOf(false) }
+    var showApiKeyDialog by remember { mutableStateOf(false) }
+    var apiKeyInput by remember { mutableStateOf("") }
 
     Scaffold(
         topBar = {
@@ -112,6 +116,21 @@ fun ProfileScreen(
                     Icon(Icons.Default.Palette, contentDescription = null)
                 },
                 modifier = Modifier.clickable { showThemeDialog = true }
+            )
+
+            // Claude API Key
+            ListItem(
+                headlineContent = { Text("Claude API Key") },
+                supportingContent = {
+                    Text(if (apiKeySet) "API key configured" else "Not configured")
+                },
+                leadingContent = {
+                    Icon(Icons.Default.Key, contentDescription = null)
+                },
+                modifier = Modifier.clickable {
+                    apiKeyInput = ""
+                    showApiKeyDialog = true
+                }
             )
 
             // Biometric
@@ -234,6 +253,48 @@ fun ProfileScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showClearDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (showApiKeyDialog) {
+        AlertDialog(
+            onDismissRequest = { showApiKeyDialog = false },
+            title = { Text("Configure Claude API Key") },
+            text = {
+                Column {
+                    Text(
+                        text = "Enter your Claude API key. This will be securely encrypted and stored on your device.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    OutlinedTextField(
+                        value = apiKeyInput,
+                        onValueChange = { apiKeyInput = it },
+                        label = { Text("API Key") },
+                        placeholder = { Text("sk-ant-...") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (apiKeyInput.isNotBlank()) {
+                            onApiKeySave(apiKeyInput)
+                            showApiKeyDialog = false
+                        }
+                    },
+                    enabled = apiKeyInput.isNotBlank()
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showApiKeyDialog = false }) {
                     Text("Cancel")
                 }
             }

@@ -72,6 +72,7 @@ fun LifeCoachNavHost(
     val isAuthenticated by viewModel.isAuthenticated.collectAsStateWithLifecycle()
     val isAuthSetupComplete by viewModel.isAuthSetupComplete.collectAsStateWithLifecycle(initialValue = false)
     val isBiometricEnabled by viewModel.isBiometricEnabled.collectAsStateWithLifecycle(initialValue = false)
+    val isApiKeySet by viewModel.isApiKeySet.collectAsStateWithLifecycle(initialValue = false)
     val userProfile by viewModel.userProfile.collectAsStateWithLifecycle()
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
 
@@ -226,8 +227,10 @@ fun LifeCoachNavHost(
                     biometricAvailable = viewModel.canUseBiometric(),
                     totalTokensUsed = totalTokensUsed,
                     totalCostCents = totalCostCents,
+                    apiKeySet = isApiKeySet,
                     onThemeChange = { viewModel.updateTheme(it) },
                     onBiometricToggle = { viewModel.toggleBiometric(it) },
+                    onApiKeySave = { apiKey -> viewModel.saveClaudeApiKey(apiKey) },
                     onExportData = { /* TODO: Implement export */ },
                     onClearData = { viewModel.clearAllData() }
                 )
