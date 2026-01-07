@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Life Coach</string>
+    <string name="dashboard">Dashboard</string>
+    <string name="experiments">Experiments</string>
+    <string name="journal">Journal</string>
+    <string name="profile">Profile</string>
+</resources>
