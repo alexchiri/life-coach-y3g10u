@@ -36,6 +36,8 @@ class SecurityManager(private val context: Context) {
         private val AUTH_SETUP_COMPLETE_KEY = booleanPreferencesKey("auth_setup_complete")
         private val DB_KEY_IV = stringPreferencesKey("db_key_iv")
         private val DB_KEY_ENCRYPTED = stringPreferencesKey("db_key_encrypted")
+        private val API_KEY_IV = stringPreferencesKey("api_key_iv")
+        private val API_KEY_ENCRYPTED = stringPreferencesKey("api_key_encrypted")
     }
 
     private val keyStore: KeyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
@@ -45,6 +47,9 @@ class SecurityManager(private val context: Context) {
 
     val isBiometricEnabled: Flow<Boolean> = context.securityDataStore.data
         .map { prefs -> prefs[BIOMETRIC_ENABLED_KEY] ?: false }
+
+    val isApiKeySet: Flow<Boolean> = context.securityDataStore.data
+        .map { prefs -> prefs[API_KEY_ENCRYPTED] != null }
 
     fun canUseBiometric(): Boolean {
         val biometricManager = BiometricManager.from(context)
@@ -126,6 +131,42 @@ class SecurityManager(private val context: Context) {
             cipher.doFinal(encrypted)
         } catch (e: Exception) {
             generateAndStoreDatabaseKey()
+        }
+    }
+
+    suspend fun setClaudeApiKey(apiKey: String) {
+        val secretKey = getOrCreateSecretKey()
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, secretKey)
+        val encrypted = cipher.doFinal(apiKey.toByteArray())
+        val iv = cipher.iv
+
+        context.securityDataStore.edit { prefs ->
+            prefs[API_KEY_IV] = Base64.encodeToString(iv, Base64.DEFAULT)
+            prefs[API_KEY_ENCRYPTED] = Base64.encodeToString(encrypted, Base64.DEFAULT)
+        }
+    }
+
+    suspend fun getClaudeApiKey(): String? {
+        val prefs = context.securityDataStore.data.first()
+        val ivString = prefs[API_KEY_IV]
+        val encryptedKey = prefs[API_KEY_ENCRYPTED]
+
+        if (ivString == null || encryptedKey == null) {
+            return null
+        }
+
+        return try {
+            val secretKey = getOrCreateSecretKey()
+            val iv = Base64.decode(ivString, Base64.DEFAULT)
+            val encrypted = Base64.decode(encryptedKey, Base64.DEFAULT)
+
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(Cipher.DECRYPT_MODE, secretKey, GCMParameterSpec(128, iv))
+            val decrypted = cipher.doFinal(encrypted)
+            String(decrypted)
+        } catch (e: Exception) {
+            null
         }
     }
 
