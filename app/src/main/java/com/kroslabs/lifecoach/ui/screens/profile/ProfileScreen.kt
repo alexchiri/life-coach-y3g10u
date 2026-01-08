@@ -7,6 +7,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.BugReport
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -32,6 +33,7 @@ fun ProfileScreen(
     onClearData: () -> Unit,
     onAnalyticsClick: () -> Unit,
     onDeepDiveClick: () -> Unit,
+    onDebugLogsClick: () -> Unit,
     onNotificationToggle: (String, Boolean) -> Unit
 ) {
     var showClearDialog by remember { mutableStateOf(false) }
@@ -289,6 +291,24 @@ fun ProfileScreen(
                     )
                 },
                 modifier = Modifier.clickable { showClearDialog = true }
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+            // Developer Section
+            Text(
+                text = "Developer",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            )
+
+            ListItem(
+                headlineContent = { Text("Debug Logs") },
+                supportingContent = { Text("View app debug logs for troubleshooting") },
+                leadingContent = {
+                    Icon(Icons.Outlined.BugReport, contentDescription = null)
+                },
+                modifier = Modifier.clickable(onClick = onDebugLogsClick)
             )
 
             Spacer(modifier = Modifier.height(32.dp))

@@ -1,6 +1,7 @@
 package com.kroslabs.lifecoach.ui.screens.auth
 
 import androidx.compose.foundation.layout.*
+import com.kroslabs.lifecoach.util.DebugLogger
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -131,9 +132,12 @@ fun ApiKeySetupScreen(
 
             Button(
                 onClick = {
+                    DebugLogger.d("ApiKeySetup", "Continue button clicked, key length: ${apiKey.length}, starts with sk-: ${apiKey.startsWith("sk-")}")
                     if (apiKey.isNotBlank() && apiKey.startsWith("sk-")) {
+                        DebugLogger.i("ApiKeySetup", "Valid API key entered, saving...")
                         onApiKeySave(apiKey)
                     } else {
+                        DebugLogger.w("ApiKeySetup", "Invalid API key format")
                         hasError = true
                     }
                 },

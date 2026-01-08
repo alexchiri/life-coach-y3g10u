@@ -1,6 +1,7 @@
 package com.kroslabs.lifecoach.network
 
 import com.google.gson.Gson
+import com.kroslabs.lifecoach.util.DebugLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -98,9 +99,11 @@ class ClaudeService(private val apiKey: String) {
     }
 
     suspend fun sendMessage(messages: List<ClaudeMessage>): Result<StreamResult> = withContext(Dispatchers.IO) {
+        DebugLogger.d("Claude", "sendMessage called with ${messages.size} messages")
         try {
             val request = ClaudeRequest(messages = messages, stream = false)
             val jsonBody = gson.toJson(request)
+            DebugLogger.d("Claude", "Request body size: ${jsonBody.length} chars, model: ${request.model}")
 
             val httpRequest = Request.Builder()
                 .url(BASE_URL)
@@ -110,16 +113,24 @@ class ClaudeService(private val apiKey: String) {
                 .post(jsonBody.toRequestBody("application/json".toMediaType()))
                 .build()
 
+            DebugLogger.d("Claude", "Executing HTTP request to $BASE_URL")
             val response = client.newCall(httpRequest).execute()
+            DebugLogger.d("Claude", "HTTP response code: ${response.code}")
+
             val responseBody = response.body?.string() ?: throw IOException("Empty response")
+            DebugLogger.d("Claude", "Response body size: ${responseBody.length} chars")
 
             if (!response.isSuccessful) {
+                DebugLogger.e("Claude", "API error: ${response.code} - ${responseBody.take(500)}")
                 return@withContext Result.failure(IOException("API error: ${response.code} - $responseBody"))
             }
 
             val claudeResponse = gson.fromJson(responseBody, ClaudeResponse::class.java)
             val text = claudeResponse.content?.firstOrNull()?.text ?: ""
             val usage = claudeResponse.usage
+
+            DebugLogger.i("Claude", "API call successful - Input: ${usage?.inputTokens ?: 0} tokens, Output: ${usage?.outputTokens ?: 0} tokens")
+            DebugLogger.d("Claude", "Response text (first 200 chars): ${text.take(200)}")
 
             Result.success(
                 StreamResult(
@@ -129,6 +140,7 @@ class ClaudeService(private val apiKey: String) {
                 )
             )
         } catch (e: Exception) {
+            DebugLogger.e("Claude", "sendMessage exception", e)
             Result.failure(e)
         }
     }

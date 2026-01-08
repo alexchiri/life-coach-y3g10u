@@ -9,6 +9,7 @@ import com.kroslabs.lifecoach.data.repository.LifeCoachRepository
 import com.kroslabs.lifecoach.network.ClaudeMessage
 import com.kroslabs.lifecoach.network.ClaudeService
 import com.kroslabs.lifecoach.security.SecurityManager
+import com.kroslabs.lifecoach.util.DebugLogger
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -114,28 +115,50 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun verifyPin(pin: String) {
         viewModelScope.launch {
+            DebugLogger.d("Auth", "verifyPin called")
             if (securityManager.verifyPin(pin)) {
+                DebugLogger.i("Auth", "PIN verified successfully")
                 initializeDatabase()
                 _isAuthenticated.value = true
                 _errorMessage.value = null
             } else {
+                DebugLogger.w("Auth", "PIN verification failed")
                 _errorMessage.value = "Invalid PIN"
             }
         }
     }
 
-    private suspend fun initializeDatabase() {
-        val passphrase = securityManager.getDatabasePassphrase()
-        val db = LifeCoachDatabase.getDatabase(getApplication(), passphrase)
-        repository = LifeCoachRepository(db.dao())
-
-        // Load and initialize Claude API key if available
-        val apiKey = securityManager.getClaudeApiKey()
-        if (apiKey != null) {
-            claudeService = ClaudeService(apiKey)
+    fun biometricLogin() {
+        viewModelScope.launch {
+            DebugLogger.i("Auth", "Biometric authentication successful, initializing database")
+            initializeDatabase()
+            _isAuthenticated.value = true
+            _errorMessage.value = null
         }
+    }
 
-        loadData()
+    private suspend fun initializeDatabase() {
+        DebugLogger.d("Database", "initializeDatabase called")
+        try {
+            val passphrase = securityManager.getDatabasePassphrase()
+            DebugLogger.d("Database", "Got database passphrase (${passphrase.size} bytes)")
+            val db = LifeCoachDatabase.getDatabase(getApplication(), passphrase)
+            repository = LifeCoachRepository(db.dao())
+            DebugLogger.i("Database", "Database initialized successfully")
+
+            // Load and initialize Claude API key if available
+            val apiKey = securityManager.getClaudeApiKey()
+            if (apiKey != null) {
+                DebugLogger.i("API", "Claude API key found, initializing service (key starts with: ${apiKey.take(10)}...)")
+                claudeService = ClaudeService(apiKey)
+            } else {
+                DebugLogger.w("API", "No Claude API key configured - AI features will be unavailable")
+            }
+
+            loadData()
+        } catch (e: Exception) {
+            DebugLogger.e("Database", "Failed to initialize database", e)
+        }
     }
 
     private fun loadData() {
@@ -170,19 +193,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun saveClaudeApiKey(apiKey: String) {
         viewModelScope.launch {
-            securityManager.setClaudeApiKey(apiKey)
-            claudeService = ClaudeService(apiKey)
+            DebugLogger.i("API", "saveClaudeApiKey called (key starts with: ${apiKey.take(10)}...)")
+            try {
+                securityManager.setClaudeApiKey(apiKey)
+                DebugLogger.i("API", "API key saved to secure storage")
+                claudeService = ClaudeService(apiKey)
+                DebugLogger.i("API", "ClaudeService initialized with new API key")
+            } catch (e: Exception) {
+                DebugLogger.e("API", "Failed to save API key", e)
+            }
         }
     }
 
     fun completeOnboarding(answers: Map<String, List<String>>) {
         viewModelScope.launch {
+            DebugLogger.i("Onboarding", "completeOnboarding called with ${answers.size} answers")
+            DebugLogger.d("Onboarding", "Answers: $answers")
             _isGenerating.value = true
+
             val profile = UserProfile(
                 valuesResponses = answers.toString(),
                 onboardingCompleted = true
             )
+
+            DebugLogger.d("Onboarding", "Inserting user profile")
             repository?.insertUserProfile(profile)
+            DebugLogger.i("Onboarding", "User profile saved, now generating initial paths")
 
             // Generate initial paths using Claude
             generateInitialPaths(answers)
@@ -190,6 +226,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun generateInitialPaths(answers: Map<String, List<String>>) {
+        DebugLogger.i("PathGen", "generateInitialPaths called")
+
+        if (claudeService == null) {
+            DebugLogger.e("PathGen", "CRITICAL: claudeService is null! Cannot generate paths. API key may not be configured.")
+            _isGenerating.value = false
+            _errorMessage.value = "Cannot generate paths: API key not configured"
+            loadData()
+            return
+        }
+
         val prompt = buildString {
             appendLine("Based on the following questionnaire responses, suggest 3-5 potential life paths for exploration:")
             answers.forEach { (key, values) ->
@@ -207,37 +253,63 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             appendLine("RATIONALE: [why this fits]")
         }
 
+        DebugLogger.d("PathGen", "Prompt built (${prompt.length} chars)")
+        DebugLogger.d("PathGen", "Sending request to Claude API...")
+
         claudeService?.let { service ->
-            val result = service.sendMessage(
-                listOf(ClaudeMessage("user", prompt))
-            )
+            try {
+                val result = service.sendMessage(
+                    listOf(ClaudeMessage("user", prompt))
+                )
 
-            result.onSuccess { response ->
-                // Parse paths from response
-                val pathRegex = Regex("PATH:\\s*(.+?)\\nDESCRIPTION:\\s*(.+?)\\nRATIONALE:\\s*(.+?)(?=\\nPATH:|$)", RegexOption.DOT_MATCHES_ALL)
-                val matches = pathRegex.findAll(response.text)
+                result.onSuccess { response ->
+                    DebugLogger.i("PathGen", "API response received: ${response.inputTokens} input tokens, ${response.outputTokens} output tokens")
+                    DebugLogger.d("PathGen", "Response text (first 500 chars): ${response.text.take(500)}")
 
-                matches.forEach { match ->
-                    val (name, description, rationale) = match.destructured
-                    repository?.insertPath(
-                        LifePath(
-                            name = name.trim(),
-                            description = description.trim(),
-                            aiRationale = rationale.trim(),
-                            viabilityScore = 50f
+                    // Parse paths from response
+                    val pathRegex = Regex("PATH:\\s*(.+?)\\nDESCRIPTION:\\s*(.+?)\\nRATIONALE:\\s*(.+?)(?=\\nPATH:|$)", RegexOption.DOT_MATCHES_ALL)
+                    val matches = pathRegex.findAll(response.text)
+                    val matchList = matches.toList()
+
+                    DebugLogger.i("PathGen", "Parsed ${matchList.size} paths from response")
+
+                    if (matchList.isEmpty()) {
+                        DebugLogger.w("PathGen", "No paths matched regex! Full response:\n${response.text}")
+                    }
+
+                    matchList.forEach { match ->
+                        val (name, description, rationale) = match.destructured
+                        DebugLogger.d("PathGen", "Inserting path: ${name.trim()}")
+                        repository?.insertPath(
+                            LifePath(
+                                name = name.trim(),
+                                description = description.trim(),
+                                aiRationale = rationale.trim(),
+                                viabilityScore = 50f
+                            )
+                        )
+                    }
+
+                    DebugLogger.i("PathGen", "All paths inserted successfully")
+
+                    // Log API usage
+                    repository?.insertApiUsage(
+                        ApiUsage(
+                            inputTokens = response.inputTokens,
+                            outputTokens = response.outputTokens,
+                            estimatedCostCents = service.calculateCost(response.inputTokens, response.outputTokens),
+                            operationType = "path_discovery"
                         )
                     )
                 }
 
-                // Log API usage
-                repository?.insertApiUsage(
-                    ApiUsage(
-                        inputTokens = response.inputTokens,
-                        outputTokens = response.outputTokens,
-                        estimatedCostCents = service.calculateCost(response.inputTokens, response.outputTokens),
-                        operationType = "path_discovery"
-                    )
-                )
+                result.onFailure { e ->
+                    DebugLogger.e("PathGen", "API call failed", e)
+                    _errorMessage.value = "Failed to generate paths: ${e.message}"
+                }
+            } catch (e: Exception) {
+                DebugLogger.e("PathGen", "Exception during path generation", e)
+                _errorMessage.value = "Failed to generate paths: ${e.message}"
             }
         }
 

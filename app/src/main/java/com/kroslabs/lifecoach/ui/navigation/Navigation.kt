@@ -21,6 +21,7 @@ sealed class Screen(val route: String) {
     data object Profile : Screen("profile")
     data object Analytics : Screen("analytics")
     data object DeepDive : Screen("deep_dive")
+    data object DebugLogs : Screen("debug_logs")
     data object PathDetail : Screen("path/{pathId}") {
         fun createRoute(pathId: Long) = "path/$pathId"
     }

@@ -32,6 +32,7 @@ import com.kroslabs.lifecoach.ui.screens.experiments.ExperimentsScreen
 import com.kroslabs.lifecoach.ui.screens.journal.JournalEntryScreen
 import com.kroslabs.lifecoach.ui.screens.journal.JournalScreen
 import com.kroslabs.lifecoach.ui.screens.onboarding.OnboardingScreen
+import com.kroslabs.lifecoach.ui.screens.profile.DebugLogsScreen
 import com.kroslabs.lifecoach.ui.screens.profile.DeepDiveScreen
 import com.kroslabs.lifecoach.ui.screens.profile.ProfileScreen
 import com.kroslabs.lifecoach.ui.theme.LifeCoachTheme
@@ -189,7 +190,7 @@ fun LifeCoachNavHost(
                     onBiometricClick = {
                         securityManager.showBiometricPrompt(
                             activity = activity,
-                            onSuccess = { viewModel.verifyPin("") },
+                            onSuccess = { viewModel.biometricLogin() },
                             onError = { }
                         )
                     },
@@ -272,6 +273,7 @@ fun LifeCoachNavHost(
                     onClearData = { viewModel.clearAllData() },
                     onAnalyticsClick = { navController.navigate(Screen.Analytics.route) },
                     onDeepDiveClick = { navController.navigate(Screen.DeepDive.route) },
+                    onDebugLogsClick = { navController.navigate(Screen.DebugLogs.route) },
                     onNotificationToggle = { field, enabled ->
                         viewModel.updateNotificationPreference(field, enabled)
                     }
@@ -459,6 +461,13 @@ fun LifeCoachNavHost(
                         viewModel.completeDeepDive(answers)
                         navController.popBackStack()
                     }
+                )
+            }
+
+            // Debug Logs Screen
+            composable(Screen.DebugLogs.route) {
+                DebugLogsScreen(
+                    onBack = { navController.popBackStack() }
                 )
             }
         }

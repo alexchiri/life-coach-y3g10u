@@ -2,6 +2,7 @@ package com.kroslabs.lifecoach.ui.screens.onboarding
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.layout.*
+import com.kroslabs.lifecoach.util.DebugLogger
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -111,7 +112,11 @@ fun OnboardingScreen(
                 }
                 else -> CompletionContent(
                     isLoading = isLoading,
-                    onComplete = { onComplete(answers.toMap()) }
+                    onComplete = {
+                        DebugLogger.i("Onboarding", "User completing onboarding with ${answers.size} answers")
+                        DebugLogger.d("Onboarding", "Answers: ${answers.toMap()}")
+                        onComplete(answers.toMap())
+                    }
                 )
             }
         }
