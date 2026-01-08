@@ -13,6 +13,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 
 sealed class Screen(val route: String) {
     data object Auth : Screen("auth")
+    data object ApiKeySetup : Screen("api_key_setup")
     data object Onboarding : Screen("onboarding")
     data object Dashboard : Screen("dashboard")
     data object Experiments : Screen("experiments")

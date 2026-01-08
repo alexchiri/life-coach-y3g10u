@@ -21,6 +21,7 @@ import com.kroslabs.lifecoach.security.SecurityManager
 import com.kroslabs.lifecoach.ui.MainViewModel
 import com.kroslabs.lifecoach.ui.navigation.*
 import com.kroslabs.lifecoach.ui.screens.analytics.AnalyticsScreen
+import com.kroslabs.lifecoach.ui.screens.auth.ApiKeySetupScreen
 import com.kroslabs.lifecoach.ui.screens.auth.AuthScreen
 import com.kroslabs.lifecoach.ui.screens.dashboard.DashboardScreen
 import com.kroslabs.lifecoach.ui.screens.dashboard.PathDetailScreen
@@ -111,16 +112,17 @@ fun LifeCoachNavHost(
     val startDestination = when {
         !isAuthSetupComplete -> Screen.Auth.route
         !isAuthenticated -> Screen.Auth.route
+        !isApiKeySet -> Screen.ApiKeySetup.route
         userProfile?.onboardingCompleted != true -> Screen.Onboarding.route
         else -> Screen.Dashboard.route
     }
 
-    LaunchedEffect(isAuthenticated, userProfile?.onboardingCompleted) {
+    LaunchedEffect(isAuthenticated, isApiKeySet, userProfile?.onboardingCompleted) {
         if (isAuthenticated) {
-            val destination = if (userProfile?.onboardingCompleted == true) {
-                Screen.Dashboard.route
-            } else {
-                Screen.Onboarding.route
+            val destination = when {
+                !isApiKeySet -> Screen.ApiKeySetup.route
+                userProfile?.onboardingCompleted != true -> Screen.Onboarding.route
+                else -> Screen.Dashboard.route
             }
             navController.navigate(destination) {
                 popUpTo(0) { inclusive = true }
@@ -192,6 +194,14 @@ fun LifeCoachNavHost(
                         )
                     },
                     errorMessage = errorMessage
+                )
+            }
+
+            composable(Screen.ApiKeySetup.route) {
+                ApiKeySetupScreen(
+                    onApiKeySave = { apiKey ->
+                        viewModel.saveClaudeApiKey(apiKey)
+                    }
                 )
             }
 
