@@ -247,10 +247,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             appendLine("2. A 2-3 sentence description")
             appendLine("3. Why this might resonate with the person")
             appendLine()
-            appendLine("Format each path as:")
+            appendLine("IMPORTANT: Format each path EXACTLY like this (use these exact labels):")
             appendLine("PATH: [name]")
             appendLine("DESCRIPTION: [description]")
             appendLine("RATIONALE: [why this fits]")
+            appendLine()
+            appendLine("Separate each path with a blank line. Do not use markdown headers or other formatting.")
         }
 
         DebugLogger.d("PathGen", "Prompt built (${prompt.length} chars)")
@@ -266,25 +268,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     DebugLogger.i("PathGen", "API response received: ${response.inputTokens} input tokens, ${response.outputTokens} output tokens")
                     DebugLogger.d("PathGen", "Response text (first 500 chars): ${response.text.take(500)}")
 
-                    // Parse paths from response
-                    val pathRegex = Regex("PATH:\\s*(.+?)\\nDESCRIPTION:\\s*(.+?)\\nRATIONALE:\\s*(.+?)(?=\\nPATH:|$)", RegexOption.DOT_MATCHES_ALL)
-                    val matches = pathRegex.findAll(response.text)
-                    val matchList = matches.toList()
+                    // Parse paths from response - try multiple formats
+                    val parsedPaths = parsePathsFromResponse(response.text)
 
-                    DebugLogger.i("PathGen", "Parsed ${matchList.size} paths from response")
+                    DebugLogger.i("PathGen", "Parsed ${parsedPaths.size} paths from response")
 
-                    if (matchList.isEmpty()) {
-                        DebugLogger.w("PathGen", "No paths matched regex! Full response:\n${response.text}")
+                    if (parsedPaths.isEmpty()) {
+                        DebugLogger.w("PathGen", "No paths parsed! Full response:\n${response.text}")
                     }
 
-                    matchList.forEach { match ->
-                        val (name, description, rationale) = match.destructured
-                        DebugLogger.d("PathGen", "Inserting path: ${name.trim()}")
+                    parsedPaths.forEach { (name, description, rationale) ->
+                        DebugLogger.d("PathGen", "Inserting path: $name")
                         repository?.insertPath(
                             LifePath(
-                                name = name.trim(),
-                                description = description.trim(),
-                                aiRationale = rationale.trim(),
+                                name = name,
+                                description = description,
+                                aiRationale = rationale,
                                 viabilityScore = 50f
                             )
                         )
@@ -315,6 +314,86 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         _isGenerating.value = false
         loadData()
+    }
+
+    private fun parsePathsFromResponse(text: String): List<Triple<String, String, String>> {
+        val results = mutableListOf<Triple<String, String, String>>()
+
+        // Try format 1: PATH: / DESCRIPTION: / RATIONALE: format
+        val pathRegex = Regex(
+            "PATH:\\s*(.+?)\\s*(?:\\n|$).*?DESCRIPTION:\\s*(.+?)\\s*(?:\\n|$).*?RATIONALE:\\s*(.+?)\\s*(?=PATH:|---|\$)",
+            setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)
+        )
+        val matches = pathRegex.findAll(text)
+        matches.forEach { match ->
+            val (name, description, rationale) = match.destructured
+            results.add(Triple(name.trim(), description.trim(), rationale.trim()))
+        }
+
+        if (results.isNotEmpty()) {
+            DebugLogger.d("PathGen", "Parsed using PATH:/DESCRIPTION:/RATIONALE: format")
+            return results
+        }
+
+        // Try format 2: Split by --- and look for ## headers or **bold** names
+        DebugLogger.d("PathGen", "Trying alternative format (--- separator)")
+        val sections = text.split(Regex("---+")).filter { it.isNotBlank() }
+
+        for (section in sections) {
+            var name = ""
+            var description = ""
+            var rationale = ""
+
+            // Try to extract name from ## header or **bold** or first line
+            val headerMatch = Regex("##\\s*(?:Path:?)?\\s*(.+?)\\s*(?:\\n|\$)", RegexOption.IGNORE_CASE).find(section)
+            val boldMatch = Regex("\\*\\*(.+?)\\*\\*").find(section)
+
+            name = when {
+                headerMatch != null -> headerMatch.groupValues[1].trim()
+                boldMatch != null -> boldMatch.groupValues[1].trim()
+                else -> section.lines().firstOrNull { it.isNotBlank() }?.trim() ?: ""
+            }
+
+            // Extract description
+            val descMatch = Regex("(?:##\\s*)?Description:?\\s*(.+?)(?=(?:##|\\*\\*|Rationale:|Why|---|\$))",
+                setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)).find(section)
+            description = descMatch?.groupValues?.get(1)?.trim() ?: ""
+
+            // Extract rationale
+            val rationaleMatch = Regex("(?:##\\s*)?(?:Rationale|Why[^:]*):?\\s*(.+?)(?=(?:##|---|\$))",
+                setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)).find(section)
+            rationale = rationaleMatch?.groupValues?.get(1)?.trim() ?: ""
+
+            // Clean up any markdown formatting
+            name = name.replace(Regex("^#+\\s*"), "").replace(Regex("\\*+"), "").trim()
+            description = description.replace(Regex("^#+\\s*"), "").trim()
+            rationale = rationale.replace(Regex("^#+\\s*"), "").trim()
+
+            if (name.isNotBlank() && (description.isNotBlank() || rationale.isNotBlank())) {
+                DebugLogger.d("PathGen", "Found path in section: $name")
+                results.add(Triple(name, description.ifBlank { "No description provided" }, rationale.ifBlank { "Based on your values and interests" }))
+            }
+        }
+
+        if (results.isNotEmpty()) {
+            DebugLogger.d("PathGen", "Parsed using --- separator format")
+            return results
+        }
+
+        // Try format 3: Look for numbered items (1. 2. 3.)
+        DebugLogger.d("PathGen", "Trying numbered format")
+        val numberedRegex = Regex("\\d+\\.\\s*\\*\\*(.+?)\\*\\*[:\\s]*(.+?)(?=\\d+\\.|$)", RegexOption.DOT_MATCHES_ALL)
+        numberedRegex.findAll(text).forEach { match ->
+            val name = match.groupValues[1].trim()
+            val rest = match.groupValues[2].trim()
+            results.add(Triple(name, rest.take(200), "Based on your values and interests"))
+        }
+
+        if (results.isEmpty()) {
+            DebugLogger.w("PathGen", "Could not parse any paths from response")
+        }
+
+        return results
     }
 
     fun generateExperiment(pathId: Long?) {
