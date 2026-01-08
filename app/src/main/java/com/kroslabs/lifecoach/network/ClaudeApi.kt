@@ -3,7 +3,7 @@ package com.kroslabs.lifecoach.network
 import com.google.gson.annotations.SerializedName
 
 data class ClaudeRequest(
-    val model: String = "claude-sonnet-4-5-20250514",
+    val model: String = "claude-sonnet-4-5-20250929",
     @SerializedName("max_tokens")
     val maxTokens: Int = 4096,
     val stream: Boolean = true,
