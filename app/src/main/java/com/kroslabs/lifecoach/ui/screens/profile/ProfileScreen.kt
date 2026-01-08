@@ -13,6 +13,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.kroslabs.lifecoach.data.model.ThemeMode
+import com.kroslabs.lifecoach.data.model.UserProfile
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -23,11 +24,15 @@ fun ProfileScreen(
     totalTokensUsed: Int,
     totalCostCents: Float,
     apiKeySet: Boolean,
+    userProfile: UserProfile?,
     onThemeChange: (ThemeMode) -> Unit,
     onBiometricToggle: (Boolean) -> Unit,
     onApiKeySave: (String) -> Unit,
     onExportData: () -> Unit,
-    onClearData: () -> Unit
+    onClearData: () -> Unit,
+    onAnalyticsClick: () -> Unit,
+    onDeepDiveClick: () -> Unit,
+    onNotificationToggle: (String, Boolean) -> Unit
 ) {
     var showClearDialog by remember { mutableStateOf(false) }
     var showThemeDialog by remember { mutableStateOf(false) }
@@ -47,18 +52,52 @@ fun ProfileScreen(
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
         ) {
+            // Quick Actions
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(8.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    FilledTonalButton(
+                        onClick = onAnalyticsClick,
+                        modifier = Modifier.weight(1f).padding(horizontal = 4.dp)
+                    ) {
+                        Icon(Icons.Default.Analytics, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Analytics")
+                    }
+                    FilledTonalButton(
+                        onClick = onDeepDiveClick,
+                        modifier = Modifier.weight(1f).padding(horizontal = 4.dp)
+                    ) {
+                        Icon(Icons.Default.Explore, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Deep Dive")
+                    }
+                }
+            }
+
             // API Usage Section
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp)
+                    .padding(horizontal = 16.dp)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Analytics,
+                            imageVector = Icons.Default.Token,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary
                         )
@@ -101,9 +140,80 @@ fun ProfileScreen(
                 }
             }
 
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Notifications Section
+            Text(
+                text = "Notifications",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            )
+
+            ListItem(
+                headlineContent = { Text("Enable Notifications") },
+                supportingContent = { Text("Receive reminders and alerts") },
+                leadingContent = {
+                    Icon(Icons.Default.Notifications, contentDescription = null)
+                },
+                trailingContent = {
+                    Switch(
+                        checked = userProfile?.notificationsEnabled ?: true,
+                        onCheckedChange = { onNotificationToggle("all", it) }
+                    )
+                }
+            )
+
+            if (userProfile?.notificationsEnabled == true) {
+                ListItem(
+                    headlineContent = { Text("Daily Check-in Reminders") },
+                    leadingContent = { Spacer(modifier = Modifier.width(24.dp)) },
+                    trailingContent = {
+                        Switch(
+                            checked = userProfile.dailyCheckInReminder,
+                            onCheckedChange = { onNotificationToggle("daily", it) }
+                        )
+                    }
+                )
+
+                ListItem(
+                    headlineContent = { Text("Weekly Reflection Prompts") },
+                    leadingContent = { Spacer(modifier = Modifier.width(24.dp)) },
+                    trailingContent = {
+                        Switch(
+                            checked = userProfile.weeklyReflectionReminder,
+                            onCheckedChange = { onNotificationToggle("weekly", it) }
+                        )
+                    }
+                )
+
+                ListItem(
+                    headlineContent = { Text("Experiment Lifecycle Alerts") },
+                    leadingContent = { Spacer(modifier = Modifier.width(24.dp)) },
+                    trailingContent = {
+                        Switch(
+                            checked = userProfile.experimentLifecycleAlerts,
+                            onCheckedChange = { onNotificationToggle("lifecycle", it) }
+                        )
+                    }
+                )
+
+                ListItem(
+                    headlineContent = { Text("Milestone Celebrations") },
+                    leadingContent = { Spacer(modifier = Modifier.width(24.dp)) },
+                    trailingContent = {
+                        Switch(
+                            checked = userProfile.milestoneNotifications,
+                            onCheckedChange = { onNotificationToggle("milestone", it) }
+                        )
+                    }
+                )
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
             // Settings Section
             Text(
-                text = "Settings",
+                text = "Appearance",
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
             )

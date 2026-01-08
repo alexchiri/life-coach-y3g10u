@@ -18,11 +18,16 @@ sealed class Screen(val route: String) {
     data object Experiments : Screen("experiments")
     data object Journal : Screen("journal")
     data object Profile : Screen("profile")
+    data object Analytics : Screen("analytics")
+    data object DeepDive : Screen("deep_dive")
     data object PathDetail : Screen("path/{pathId}") {
         fun createRoute(pathId: Long) = "path/$pathId"
     }
     data object ExperimentDetail : Screen("experiment/{experimentId}") {
         fun createRoute(experimentId: Long) = "experiment/$experimentId"
+    }
+    data object CheckIn : Screen("checkin/{experimentId}") {
+        fun createRoute(experimentId: Long) = "checkin/$experimentId"
     }
     data object CreateExperiment : Screen("create_experiment?pathId={pathId}") {
         fun createRoute(pathId: Long? = null) = if (pathId != null) {

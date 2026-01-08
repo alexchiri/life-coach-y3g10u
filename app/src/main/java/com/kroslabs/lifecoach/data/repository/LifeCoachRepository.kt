@@ -56,8 +56,22 @@ class LifeCoachRepository(private val dao: LifeCoachDao) {
     // Analytics
     fun getAnalyticsForPath(pathId: Long): Flow<List<AnalyticsSnapshot>> =
         dao.getAnalyticsForPath(pathId)
+    fun getAllAnalytics(): Flow<List<AnalyticsSnapshot>> = dao.getAllAnalytics()
+    suspend fun getAnalyticsSince(startTime: Long): List<AnalyticsSnapshot> =
+        dao.getAnalyticsSince(startTime)
     suspend fun insertAnalyticsSnapshot(snapshot: AnalyticsSnapshot) =
         dao.insertAnalyticsSnapshot(snapshot)
+
+    // Additional experiment queries
+    fun getAllExperiments(): Flow<List<Experiment>> = dao.getAllExperiments()
+    suspend fun getTotalCompletedExperiments(): Int = dao.getTotalCompletedExperiments()
+    suspend fun getTotalExperiments(): Int = dao.getTotalExperiments()
+
+    // Check-in aggregates
+    suspend fun getCheckInsSince(startTime: Long): List<CheckIn> = dao.getCheckInsSince(startTime)
+    suspend fun getCheckInCountForExperiment(experimentId: Long): Int =
+        dao.getCheckInCountForExperiment(experimentId)
+    suspend fun getCheckInDates(): List<String> = dao.getCheckInDates()
 
     // Data management
     suspend fun clearAllData() {

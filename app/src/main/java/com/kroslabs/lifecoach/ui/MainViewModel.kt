@@ -11,6 +11,8 @@ import com.kroslabs.lifecoach.network.ClaudeService
 import com.kroslabs.lifecoach.security.SecurityManager
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -49,6 +51,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _totalCostCents = MutableStateFlow(0f)
     val totalCostCents: StateFlow<Float> = _totalCostCents.asStateFlow()
+
+    // Detail screen state
+    private val _selectedPath = MutableStateFlow<LifePath?>(null)
+    val selectedPath: StateFlow<LifePath?> = _selectedPath.asStateFlow()
+
+    private val _selectedExperiment = MutableStateFlow<Experiment?>(null)
+    val selectedExperiment: StateFlow<Experiment?> = _selectedExperiment.asStateFlow()
+
+    private val _pathExperiments = MutableStateFlow<List<Experiment>>(emptyList())
+    val pathExperiments: StateFlow<List<Experiment>> = _pathExperiments.asStateFlow()
+
+    private val _experimentCheckIns = MutableStateFlow<List<CheckIn>>(emptyList())
+    val experimentCheckIns: StateFlow<List<CheckIn>> = _experimentCheckIns.asStateFlow()
+
+    // Analytics state
+    private val _currentStreak = MutableStateFlow(0)
+    val currentStreak: StateFlow<Int> = _currentStreak.asStateFlow()
+
+    private val _completionRate = MutableStateFlow(0f)
+    val completionRate: StateFlow<Float> = _completionRate.asStateFlow()
+
+    private val _weeklyInsights = MutableStateFlow("")
+    val weeklyInsights: StateFlow<String> = _weeklyInsights.asStateFlow()
+
+    private val _pathInsights = MutableStateFlow("")
+    val pathInsights: StateFlow<String> = _pathInsights.asStateFlow()
 
     // AI Generation State
     private val _isGenerating = MutableStateFlow(false)
@@ -411,6 +439,330 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _isAuthenticated.value = false
         LifeCoachDatabase.closeDatabase()
         repository = null
+    }
+
+    // Path Detail methods
+    fun loadPathDetail(pathId: Long) {
+        viewModelScope.launch {
+            _selectedPath.value = repository?.getPathById(pathId)
+            repository?.getExperimentsByPath(pathId)?.collect {
+                _pathExperiments.value = it
+            }
+        }
+    }
+
+    fun generatePathInsights(pathId: Long) {
+        viewModelScope.launch {
+            _isGenerating.value = true
+            _pathInsights.value = ""
+
+            val path = repository?.getPathById(pathId) ?: return@launch
+            val experiments = _pathExperiments.value
+            val completedCount = experiments.count { it.status == ExperimentStatus.COMPLETED }
+
+            val prompt = buildString {
+                appendLine("Analyze this life path's progress and provide insights:")
+                appendLine()
+                appendLine("Path: ${path.name}")
+                appendLine("Description: ${path.description}")
+                appendLine("Current Viability Score: ${path.viabilityScore}")
+                appendLine("Total Experiments: ${experiments.size}")
+                appendLine("Completed Experiments: $completedCount")
+                appendLine()
+                appendLine("Provide 2-3 sentences of insights about:")
+                appendLine("- How well this path is resonating based on experiment engagement")
+                appendLine("- Suggestions for next steps or adjustments")
+                appendLine("- Whether to continue exploring or consider pivoting")
+            }
+
+            claudeService?.let { service ->
+                val result = service.sendMessage(listOf(ClaudeMessage("user", prompt)))
+                result.onSuccess { response ->
+                    _pathInsights.value = response.text
+                    repository?.insertApiUsage(
+                        ApiUsage(
+                            inputTokens = response.inputTokens,
+                            outputTokens = response.outputTokens,
+                            estimatedCostCents = service.calculateCost(response.inputTokens, response.outputTokens),
+                            operationType = "path_insights"
+                        )
+                    )
+                }
+            }
+            _isGenerating.value = false
+        }
+    }
+
+    fun updatePathViability(pathId: Long, newScore: Float) {
+        viewModelScope.launch {
+            repository?.getPathById(pathId)?.let { path ->
+                repository?.updatePath(path.copy(viabilityScore = newScore, updatedAt = System.currentTimeMillis()))
+                loadData()
+            }
+        }
+    }
+
+    fun archivePath(pathId: Long) {
+        viewModelScope.launch {
+            repository?.getPathById(pathId)?.let { path ->
+                repository?.updatePath(path.copy(isActive = false, updatedAt = System.currentTimeMillis()))
+                loadData()
+            }
+        }
+    }
+
+    // Experiment Detail methods
+    fun loadExperimentDetail(experimentId: Long) {
+        viewModelScope.launch {
+            _selectedExperiment.value = repository?.getExperimentById(experimentId)
+            repository?.getCheckInsForExperiment(experimentId)?.collect {
+                _experimentCheckIns.value = it
+            }
+        }
+    }
+
+    fun updateExperimentStatus(experimentId: Long, status: ExperimentStatus) {
+        viewModelScope.launch {
+            repository?.getExperimentById(experimentId)?.let { experiment ->
+                repository?.updateExperiment(
+                    experiment.copy(
+                        status = status,
+                        progress = if (status == ExperimentStatus.COMPLETED) 100f else experiment.progress,
+                        updatedAt = System.currentTimeMillis()
+                    )
+                )
+                loadExperimentDetail(experimentId)
+                loadData()
+            }
+        }
+    }
+
+    fun deleteExperiment(experimentId: Long) {
+        viewModelScope.launch {
+            repository?.getExperimentById(experimentId)?.let {
+                repository?.deleteExperiment(it)
+                loadData()
+            }
+        }
+    }
+
+    // Analytics methods
+    fun loadAnalytics() {
+        viewModelScope.launch {
+            // Calculate completion rate
+            val total = repository?.getTotalExperiments() ?: 0
+            val completed = repository?.getTotalCompletedExperiments() ?: 0
+            _completionRate.value = if (total > 0) (completed.toFloat() / total) * 100 else 0f
+
+            // Calculate streak
+            calculateStreak()
+        }
+    }
+
+    private suspend fun calculateStreak() {
+        val dates = repository?.getCheckInDates() ?: emptyList()
+        if (dates.isEmpty()) {
+            _currentStreak.value = 0
+            return
+        }
+
+        val formatter = DateTimeFormatter.ISO_LOCAL_DATE
+        var streak = 0
+        var currentDate = LocalDate.now()
+
+        for (dateStr in dates) {
+            try {
+                val checkInDate = LocalDate.parse(dateStr, formatter)
+                if (checkInDate == currentDate || checkInDate == currentDate.minusDays(1)) {
+                    streak++
+                    currentDate = checkInDate.minusDays(1)
+                } else {
+                    break
+                }
+            } catch (_: Exception) {
+                break
+            }
+        }
+        _currentStreak.value = streak
+    }
+
+    fun generateWeeklyReflection() {
+        viewModelScope.launch {
+            _isGenerating.value = true
+            _weeklyInsights.value = ""
+
+            val weekAgo = System.currentTimeMillis() - (7L * 24 * 60 * 60 * 1000)
+            val recentEntries = repository?.getJournalEntriesSince(weekAgo) ?: emptyList()
+            val recentCheckIns = repository?.getCheckInsSince(weekAgo) ?: emptyList()
+
+            if (recentEntries.isEmpty() && recentCheckIns.isEmpty()) {
+                _weeklyInsights.value = "Not enough data for weekly insights. Keep journaling and checking in on your experiments!"
+                _isGenerating.value = false
+                return@launch
+            }
+
+            val prompt = buildString {
+                appendLine("Analyze the past week's activity and provide insights:")
+                appendLine()
+                if (recentEntries.isNotEmpty()) {
+                    appendLine("Journal Entries:")
+                    recentEntries.take(5).forEach { entry ->
+                        appendLine("- ${entry.content.take(200)}")
+                    }
+                }
+                if (recentCheckIns.isNotEmpty()) {
+                    appendLine()
+                    appendLine("Check-ins: ${recentCheckIns.size} total")
+                    appendLine("Average progress: ${recentCheckIns.map { it.progressValue }.average().toInt()}%")
+                }
+                appendLine()
+                appendLine("Provide 3-4 sentences covering:")
+                appendLine("- Patterns in emotions or energy levels")
+                appendLine("- Which experiments show strongest engagement")
+                appendLine("- Suggestions for the coming week")
+            }
+
+            claudeService?.let { service ->
+                val result = service.sendMessage(listOf(ClaudeMessage("user", prompt)))
+                result.onSuccess { response ->
+                    _weeklyInsights.value = response.text
+                    repository?.insertApiUsage(
+                        ApiUsage(
+                            inputTokens = response.inputTokens,
+                            outputTokens = response.outputTokens,
+                            estimatedCostCents = service.calculateCost(response.inputTokens, response.outputTokens),
+                            operationType = "weekly_reflection"
+                        )
+                    )
+                }
+            }
+            _isGenerating.value = false
+        }
+    }
+
+    // Deep dive questionnaire
+    fun completeDeepDive(answers: Map<String, List<String>>) {
+        viewModelScope.launch {
+            _isGenerating.value = true
+
+            _userProfile.value?.let { profile ->
+                repository?.updateUserProfile(
+                    profile.copy(
+                        deepDiveResponses = answers.toString(),
+                        deepDiveCompleted = true,
+                        updatedAt = System.currentTimeMillis()
+                    )
+                )
+            }
+
+            // Generate refined path suggestions
+            val prompt = buildString {
+                appendLine("Based on this extended values exploration, suggest refinements to life paths:")
+                appendLine()
+                answers.forEach { (key, values) ->
+                    appendLine("$key: ${values.joinToString(", ")}")
+                }
+                appendLine()
+                appendLine("For each suggestion, provide:")
+                appendLine("PATH: [name]")
+                appendLine("DESCRIPTION: [description]")
+                appendLine("RATIONALE: [why this fits]")
+            }
+
+            claudeService?.let { service ->
+                val result = service.sendMessage(listOf(ClaudeMessage("user", prompt)))
+                result.onSuccess { response ->
+                    val pathRegex = Regex("PATH:\\s*(.+?)\\nDESCRIPTION:\\s*(.+?)\\nRATIONALE:\\s*(.+?)(?=\\nPATH:|$)", RegexOption.DOT_MATCHES_ALL)
+                    val matches = pathRegex.findAll(response.text)
+
+                    matches.forEach { match ->
+                        val (name, description, rationale) = match.destructured
+                        repository?.insertPath(
+                            LifePath(
+                                name = name.trim(),
+                                description = description.trim(),
+                                aiRationale = rationale.trim(),
+                                viabilityScore = 50f
+                            )
+                        )
+                    }
+
+                    repository?.insertApiUsage(
+                        ApiUsage(
+                            inputTokens = response.inputTokens,
+                            outputTokens = response.outputTokens,
+                            estimatedCostCents = service.calculateCost(response.inputTokens, response.outputTokens),
+                            operationType = "deep_dive"
+                        )
+                    )
+                }
+            }
+
+            _isGenerating.value = false
+            loadData()
+        }
+    }
+
+    // Notification preferences
+    fun updateNotificationPreference(field: String, enabled: Boolean) {
+        viewModelScope.launch {
+            _userProfile.value?.let { profile ->
+                val updated = when (field) {
+                    "all" -> profile.copy(notificationsEnabled = enabled)
+                    "daily" -> profile.copy(dailyCheckInReminder = enabled)
+                    "weekly" -> profile.copy(weeklyReflectionReminder = enabled)
+                    "lifecycle" -> profile.copy(experimentLifecycleAlerts = enabled)
+                    "milestone" -> profile.copy(milestoneNotifications = enabled)
+                    else -> profile
+                }
+                repository?.updateUserProfile(updated.copy(updatedAt = System.currentTimeMillis()))
+            }
+        }
+    }
+
+    fun updateNotificationTime(time: String) {
+        viewModelScope.launch {
+            _userProfile.value?.let { profile ->
+                repository?.updateUserProfile(
+                    profile.copy(
+                        preferredNotificationTime = time,
+                        updatedAt = System.currentTimeMillis()
+                    )
+                )
+            }
+        }
+    }
+
+    // Export data
+    fun exportData(): String {
+        val paths = _paths.value
+        val experiments = _experiments.value
+        val entries = _journalEntries.value
+
+        return buildString {
+            appendLine("{")
+            appendLine("  \"exportDate\": \"${System.currentTimeMillis()}\",")
+            appendLine("  \"paths\": [")
+            paths.forEachIndexed { index, path ->
+                appendLine("    {\"name\": \"${path.name}\", \"description\": \"${path.description}\", \"viabilityScore\": ${path.viabilityScore}}")
+                if (index < paths.size - 1) appendLine(",")
+            }
+            appendLine("  ],")
+            appendLine("  \"experiments\": [")
+            experiments.forEachIndexed { index, exp ->
+                appendLine("    {\"title\": \"${exp.title}\", \"purpose\": \"${exp.purpose}\", \"status\": \"${exp.status}\"}")
+                if (index < experiments.size - 1) appendLine(",")
+            }
+            appendLine("  ],")
+            appendLine("  \"journalEntries\": [")
+            entries.forEachIndexed { index, entry ->
+                val escapedContent = entry.content.replace("\"", "\\\"").replace("\n", "\\n")
+                appendLine("    {\"content\": \"$escapedContent\", \"createdAt\": ${entry.createdAt}}")
+                if (index < entries.size - 1) appendLine(",")
+            }
+            appendLine("  ]")
+            appendLine("}")
+        }
     }
 }
 

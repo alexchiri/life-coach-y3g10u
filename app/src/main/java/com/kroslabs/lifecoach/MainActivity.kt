@@ -1,7 +1,6 @@
 package com.kroslabs.lifecoach
 
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
@@ -16,17 +15,23 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavType
 import androidx.navigation.compose.*
 import androidx.navigation.navArgument
+import com.kroslabs.lifecoach.data.model.ExperimentStatus
 import com.kroslabs.lifecoach.data.model.ThemeMode
 import com.kroslabs.lifecoach.security.SecurityManager
 import com.kroslabs.lifecoach.ui.MainViewModel
 import com.kroslabs.lifecoach.ui.navigation.*
+import com.kroslabs.lifecoach.ui.screens.analytics.AnalyticsScreen
 import com.kroslabs.lifecoach.ui.screens.auth.AuthScreen
 import com.kroslabs.lifecoach.ui.screens.dashboard.DashboardScreen
+import com.kroslabs.lifecoach.ui.screens.dashboard.PathDetailScreen
+import com.kroslabs.lifecoach.ui.screens.experiments.CheckInScreen
 import com.kroslabs.lifecoach.ui.screens.experiments.CreateExperimentScreen
+import com.kroslabs.lifecoach.ui.screens.experiments.ExperimentDetailScreen
 import com.kroslabs.lifecoach.ui.screens.experiments.ExperimentsScreen
 import com.kroslabs.lifecoach.ui.screens.journal.JournalEntryScreen
 import com.kroslabs.lifecoach.ui.screens.journal.JournalScreen
 import com.kroslabs.lifecoach.ui.screens.onboarding.OnboardingScreen
+import com.kroslabs.lifecoach.ui.screens.profile.DeepDiveScreen
 import com.kroslabs.lifecoach.ui.screens.profile.ProfileScreen
 import com.kroslabs.lifecoach.ui.theme.LifeCoachTheme
 
@@ -60,6 +65,12 @@ class MainActivity : FragmentActivity() {
             }
         }
     }
+
+    override fun onStop() {
+        super.onStop()
+        // Auto-lock when app goes to background
+        viewModel.logout()
+    }
 }
 
 @Composable
@@ -84,6 +95,18 @@ fun LifeCoachNavHost(
     val aiInsights by viewModel.aiInsights.collectAsStateWithLifecycle()
     val totalTokensUsed by viewModel.totalTokensUsed.collectAsStateWithLifecycle()
     val totalCostCents by viewModel.totalCostCents.collectAsStateWithLifecycle()
+
+    // Detail screen state
+    val selectedPath by viewModel.selectedPath.collectAsStateWithLifecycle()
+    val selectedExperiment by viewModel.selectedExperiment.collectAsStateWithLifecycle()
+    val pathExperiments by viewModel.pathExperiments.collectAsStateWithLifecycle()
+    val experimentCheckIns by viewModel.experimentCheckIns.collectAsStateWithLifecycle()
+    val pathInsights by viewModel.pathInsights.collectAsStateWithLifecycle()
+
+    // Analytics state
+    val currentStreak by viewModel.currentStreak.collectAsStateWithLifecycle()
+    val completionRate by viewModel.completionRate.collectAsStateWithLifecycle()
+    val weeklyInsights by viewModel.weeklyInsights.collectAsStateWithLifecycle()
 
     val startDestination = when {
         !isAuthSetupComplete -> Screen.Auth.route
@@ -228,11 +251,20 @@ fun LifeCoachNavHost(
                     totalTokensUsed = totalTokensUsed,
                     totalCostCents = totalCostCents,
                     apiKeySet = isApiKeySet,
+                    userProfile = userProfile,
                     onThemeChange = { viewModel.updateTheme(it) },
                     onBiometricToggle = { viewModel.toggleBiometric(it) },
                     onApiKeySave = { apiKey -> viewModel.saveClaudeApiKey(apiKey) },
-                    onExportData = { /* TODO: Implement export */ },
-                    onClearData = { viewModel.clearAllData() }
+                    onExportData = {
+                        val exportJson = viewModel.exportData()
+                        // In a full implementation, this would save to a file
+                    },
+                    onClearData = { viewModel.clearAllData() },
+                    onAnalyticsClick = { navController.navigate(Screen.Analytics.route) },
+                    onDeepDiveClick = { navController.navigate(Screen.DeepDive.route) },
+                    onNotificationToggle = { field, enabled ->
+                        viewModel.updateNotificationPreference(field, enabled)
+                    }
                 )
             }
 
@@ -292,6 +324,131 @@ fun LifeCoachNavHost(
                         navController.popBackStack()
                     },
                     onAnalyze = { viewModel.analyzeJournalEntry(it) }
+                )
+            }
+
+            // Path Detail Screen
+            composable(
+                route = Screen.PathDetail.route,
+                arguments = listOf(
+                    navArgument("pathId") { type = NavType.LongType }
+                )
+            ) { backStackEntry ->
+                val pathId = backStackEntry.arguments?.getLong("pathId") ?: 0L
+
+                LaunchedEffect(pathId) {
+                    viewModel.loadPathDetail(pathId)
+                }
+
+                PathDetailScreen(
+                    path = selectedPath,
+                    experiments = pathExperiments,
+                    pathInsights = pathInsights,
+                    isGenerating = isGenerating,
+                    onBack = { navController.popBackStack() },
+                    onExperimentClick = { experimentId ->
+                        navController.navigate(Screen.ExperimentDetail.createRoute(experimentId))
+                    },
+                    onCreateExperiment = {
+                        navController.navigate(Screen.CreateExperiment.createRoute(pathId))
+                    },
+                    onGenerateInsights = { viewModel.generatePathInsights(pathId) },
+                    onArchivePath = { viewModel.archivePath(pathId) },
+                    onUpdateViability = { newScore -> viewModel.updatePathViability(pathId, newScore) }
+                )
+            }
+
+            // Experiment Detail Screen
+            composable(
+                route = Screen.ExperimentDetail.route,
+                arguments = listOf(
+                    navArgument("experimentId") { type = NavType.LongType }
+                )
+            ) { backStackEntry ->
+                val experimentId = backStackEntry.arguments?.getLong("experimentId") ?: 0L
+
+                LaunchedEffect(experimentId) {
+                    viewModel.loadExperimentDetail(experimentId)
+                }
+
+                ExperimentDetailScreen(
+                    experiment = selectedExperiment,
+                    checkIns = experimentCheckIns,
+                    onBack = { navController.popBackStack() },
+                    onCheckIn = {
+                        navController.navigate(Screen.CheckIn.createRoute(experimentId))
+                    },
+                    onComplete = {
+                        viewModel.updateExperimentStatus(experimentId, ExperimentStatus.COMPLETED)
+                    },
+                    onPause = {
+                        viewModel.updateExperimentStatus(experimentId, ExperimentStatus.PAUSED)
+                    },
+                    onResume = {
+                        viewModel.updateExperimentStatus(experimentId, ExperimentStatus.ACTIVE)
+                    },
+                    onArchive = {
+                        viewModel.updateExperimentStatus(experimentId, ExperimentStatus.ARCHIVED)
+                    },
+                    onDelete = { viewModel.deleteExperiment(experimentId) }
+                )
+            }
+
+            // Check-In Screen
+            composable(
+                route = Screen.CheckIn.route,
+                arguments = listOf(
+                    navArgument("experimentId") { type = NavType.LongType }
+                )
+            ) { backStackEntry ->
+                val experimentId = backStackEntry.arguments?.getLong("experimentId") ?: 0L
+
+                LaunchedEffect(experimentId) {
+                    viewModel.loadExperimentDetail(experimentId)
+                    viewModel.loadAnalytics()
+                }
+
+                CheckInScreen(
+                    experiment = selectedExperiment,
+                    currentStreak = currentStreak,
+                    onBack = { navController.popBackStack() },
+                    onSubmit = { progress, notes ->
+                        viewModel.checkInExperiment(experimentId, progress, notes)
+                    }
+                )
+            }
+
+            // Analytics Screen
+            composable(Screen.Analytics.route) {
+                LaunchedEffect(Unit) {
+                    viewModel.loadAnalytics()
+                }
+
+                AnalyticsScreen(
+                    paths = paths,
+                    completionRate = completionRate,
+                    currentStreak = currentStreak,
+                    weeklyInsights = weeklyInsights,
+                    isGenerating = isGenerating,
+                    onBack = { navController.popBackStack() },
+                    onGenerateWeeklyInsights = { viewModel.generateWeeklyReflection() },
+                    onExportData = {
+                        // Export data functionality
+                        val exportJson = viewModel.exportData()
+                        // In a full implementation, this would save to a file
+                    }
+                )
+            }
+
+            // Deep Dive Screen
+            composable(Screen.DeepDive.route) {
+                DeepDiveScreen(
+                    isLoading = isGenerating,
+                    onBack = { navController.popBackStack() },
+                    onComplete = { answers ->
+                        viewModel.completeDeepDive(answers)
+                        navController.popBackStack()
+                    }
                 )
             }
         }

@@ -10,10 +10,17 @@ data class UserProfile(
     @PrimaryKey
     val id: Long = 1,
     val valuesResponses: String = "", // JSON string of questionnaire responses
+    val deepDiveResponses: String = "", // Extended questionnaire responses
     val onboardingCompleted: Boolean = false,
     val deepDiveCompleted: Boolean = false,
     val preferredNotificationTime: String = "09:00",
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    // Notification preferences
+    val notificationsEnabled: Boolean = true,
+    val dailyCheckInReminder: Boolean = true,
+    val weeklyReflectionReminder: Boolean = true,
+    val experimentLifecycleAlerts: Boolean = true,
+    val milestoneNotifications: Boolean = true,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 )

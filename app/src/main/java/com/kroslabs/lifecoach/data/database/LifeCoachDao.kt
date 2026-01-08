@@ -112,8 +112,35 @@ interface LifeCoachDao {
     @Query("SELECT * FROM analytics WHERE pathId = :pathId ORDER BY snapshotDate DESC LIMIT 30")
     fun getAnalyticsForPath(pathId: Long): Flow<List<AnalyticsSnapshot>>
 
+    @Query("SELECT * FROM analytics ORDER BY snapshotDate DESC")
+    fun getAllAnalytics(): Flow<List<AnalyticsSnapshot>>
+
+    @Query("SELECT * FROM analytics WHERE snapshotDate >= :startTime ORDER BY snapshotDate ASC")
+    suspend fun getAnalyticsSince(startTime: Long): List<AnalyticsSnapshot>
+
     @Insert
     suspend fun insertAnalyticsSnapshot(snapshot: AnalyticsSnapshot)
+
+    // Additional queries for experiments
+    @Query("SELECT * FROM experiments ORDER BY createdAt DESC")
+    fun getAllExperiments(): Flow<List<Experiment>>
+
+    @Query("SELECT COUNT(*) FROM experiments WHERE status = 'COMPLETED'")
+    suspend fun getTotalCompletedExperiments(): Int
+
+    @Query("SELECT COUNT(*) FROM experiments")
+    suspend fun getTotalExperiments(): Int
+
+    // Check-in aggregates
+    @Query("SELECT * FROM check_ins WHERE createdAt >= :startTime ORDER BY createdAt DESC")
+    suspend fun getCheckInsSince(startTime: Long): List<CheckIn>
+
+    @Query("SELECT COUNT(*) FROM check_ins WHERE experimentId = :experimentId")
+    suspend fun getCheckInCountForExperiment(experimentId: Long): Int
+
+    // Streak calculation
+    @Query("SELECT DISTINCT date(createdAt/1000, 'unixepoch', 'localtime') as checkDate FROM check_ins ORDER BY checkDate DESC")
+    suspend fun getCheckInDates(): List<String>
 
     // Data management
     @Query("DELETE FROM experiments")
